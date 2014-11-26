@@ -17,6 +17,7 @@
 #   along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import atexit
+import fnmatch
 import glob
 import http.client
 import locale
@@ -49,9 +50,8 @@ __all__ = ["LanguageTool", "Error", "get_languages", "correct", "get_version",
            "get_directory", "set_directory"]
 
 JAR_NAMES = [
-    "languagetool-standalone*.jar",    # 2.1
+    "languagetool-server.jar",
     "LanguageTool.jar",
-    "LanguageTool.uno.jar"
 ]
 FAILSAFE_LANGUAGE = "en"
 
@@ -563,17 +563,16 @@ def get_jar_info():
             raise JavaError("can’t find Java")
         dir_name = get_directory()
         jar_path = None
-        for jar_name in JAR_NAMES:
-            for jar_path in glob.glob(os.path.join(dir_name, jar_name)):
-                if os.path.isfile(jar_path):
+        for file in os.listdir(dir_name):
+            for jar_name in JAR_NAMES:
+                if fnmatch.fnmatch(file, jar_name):
+                    jar_path = os.path.join(dir_name, file)
                     break
-            else:
-                jar_path = None
             if jar_path:
                 break
         else:
-            raise PathError("can’t find languagetool-standalone in {!r}"
-                            .format(dir_name))
+            raise PathError("can’t find {!r}"
+                            .format(os.path.join(dir_name, JAR_NAMES[0])))
         cache["jar_info"] = java_path, jar_path
     return java_path, jar_path
 
