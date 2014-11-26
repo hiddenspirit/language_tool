@@ -578,7 +578,8 @@ def default_hook(config):
 
     if IS_PY2K and any(arg.startswith("install") or
                        arg.startswith("build") or
-                       arg.startswith("bdist") for arg in sys.argv):
+                       arg.startswith("bdist") or
+                       arg.startswith("develop") for arg in sys.argv):
         generate_py2k(config)
         packages_root = get_cfg_value(config, "files", "packages_root")
         packages_root = os.path.join(PY2K_DIR, packages_root)
