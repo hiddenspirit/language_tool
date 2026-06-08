@@ -1,0 +1,45 @@
+[build-system]
+# packaging is imported by download_lt during the build_py step.
+requires = ["setuptools>=61.0.0", "wheel", "packaging"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "language_tool"
+version = "0.4"
+description = "LanguageTool through server mode"
+readme = "README.rst"
+authors = [
+    { name = "spirit", email = "hiddenspirit@gmail.com" }
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+]
+dependencies = [
+    "packaging",
+]
+requires-python = ">=3.8"
+
+[project.urls]
+Homepage = "https://github.com/hiddenspirit/language_tool"
+
+[tool.setuptools]
+packages = ["language_tool", "language_tool.backports"]
+py-modules = ["download_lt"]
+
+[tool.setuptools.package-data]
+language_tool = [
+    "LanguageTool*/*.*",
+    "LanguageTool*/libs/*.*",
+    "LanguageTool*/META-INF/*.*",
+    "LanguageTool*/META-INF/maven/org.languagetool/*/*.*",
+    "LanguageTool*/META-INF/org/languagetool/*.*",
+    "LanguageTool*/org/*/*.*",
+    "LanguageTool*/org/*/*/*.*",
+    "LanguageTool*/org/*/*/*/*.*",
+    "LanguageTool*/org/*/*/*/*/*.*",
+    "LanguageTool*/org/*/*/*/*/*/*.*",
+    "LanguageTool*/org/*/*/*/*/*/*/*.*",
+]

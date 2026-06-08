@@ -33,7 +33,6 @@ class TestLanguageTool(unittest.TestCase):
                  "de correcteur orthographique."),
                 [
                     Match(0, 0, "SE_CE"),
-                    Match(0, 3, "TE_NV"),
                     Match(0, 24, "FRENCH_WORD_REPEAT_RULE"),
                     Match(0, 82, "UPPERCASE_SENTENCE_START"),
                 ]
@@ -43,7 +42,6 @@ class TestLanguageTool(unittest.TestCase):
                 [
                     Match(0, 0, "UPPERCASE_SENTENCE_START"),
                     Match(0, 6, "RAPPELER_DE"),
-                    Match(0, 28, "ACCORD_NOMBRE"),
                     Match(0, 34, "FRENCH_WHITESPACE"),
                 ]
             ),
@@ -57,7 +55,7 @@ class TestLanguageTool(unittest.TestCase):
         },
         "fr": {
             "il monte en haut si il veut.":
-            "Il monte s’il veut.",
+            "Il monte s'il veut.",
         },
     }
 

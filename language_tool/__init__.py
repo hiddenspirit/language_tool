@@ -1,7 +1,7 @@
 """LanguageTool through server mode
 """
 #   © 2012 spirit <hiddenspirit@gmail.com>
-#   https://bitbucket.org/spirit/language_tool
+#   https://github.com/hiddenspirit/language_tool
 #
 #   This program is free software: you can redistribute it and/or modify it
 #   under the terms of the GNU Lesser General Public License as published
@@ -20,6 +20,7 @@ import atexit
 import fnmatch
 import glob
 import http.client
+import json
 import locale
 import os
 import re
@@ -54,9 +55,6 @@ JAR_NAMES = [
     "LanguageTool.jar",
 ]
 FAILSAFE_LANGUAGE = "en"
-
-# http://mail.python.org/pipermail/python-dev/2011-July/112551.html
-USE_URLOPEN_RESOURCE_WARNING_FIX = (3, 1) < sys.version_info < (3, 4)
 
 if os.name == "nt":
     startupinfo = subprocess.STARTUPINFO() #@UndefinedVariable
@@ -240,15 +238,85 @@ class LanguageTool:
     def check(self, text: str, srctext=None) -> [Match]:
         """Match text against enabled rules.
         """
-        root = self._get_root(self._url, self._encode(text, srctext))
-        return [Match(e.attrib, text) for e in root if e.tag == "error"]
+        url = urllib.parse.urljoin(self._url, "v2/check")
+        data = self._encode(text, srctext)
+        try:
+            with urllib.request.urlopen(url, data, self._TIMEOUT) as f:
+                resp = json.loads(f.read().decode("utf-8"))
+        except (IOError, http.client.HTTPException, ValueError) as e:
+            raise Error("{}: {}".format(self._url, e))
+
+        def offset_to_line_col(txt, off):
+            line = txt.count('\n', 0, off)
+            if line == 0:
+                col = off
+            else:
+                col = off - txt.rfind('\n', 0, off) - 1
+            return line, col
+
+        matches = []
+        for json_match in resp.get("matches", []):
+            attrib = {}
+            offset = json_match.get("offset", 0)
+            length = json_match.get("length", 0)
+
+            fromy, fromx = offset_to_line_col(text, offset)
+            toy, tox = offset_to_line_col(text, offset + length)
+
+            attrib["fromy"] = fromy
+            attrib["fromx"] = fromx
+            attrib["toy"] = toy
+            attrib["tox"] = tox
+
+            rule = json_match.get("rule", {})
+            attrib["ruleId"] = rule.get("id", "")
+            # Only set subId when present; otherwise it would be coerced to
+            # the string "None" by Match.__setattr__ and rendered as "[None]".
+            if rule.get("subId") is not None:
+                attrib["subId"] = rule["subId"]
+            attrib["msg"] = json_match.get("message", "")
+
+            attrib["replacements"] = [
+                r.get("value", "")
+                for r in json_match.get("replacements", [])
+            ]
+
+            context_dict = json_match.get("context", {})
+            attrib["context"] = context_dict.get("text", "")
+            attrib["contextoffset"] = context_dict.get("offset", 0)
+
+            attrib["offset"] = offset
+            attrib["errorlength"] = length
+
+            urls = rule.get("urls", [])
+            attrib["url"] = urls[0].get("value", "") if urls else ""
+            attrib["category"] = rule.get("category", {}).get("name", "")
+            attrib["locqualityissuetype"] = rule.get("issueType", "")
+
+            matches.append(Match(attrib, text))
+
+        return matches
 
     def _check_api(self, text: str, srctext=None) -> bytes:
         """Match text against enabled rules (result in XML format).
         """
-        root = self._get_root(self._url, self._encode(text, srctext))
+        matches = self.check(text, srctext)
+        root = ElementTree.Element("matches")
+        for m in matches:
+            attrib = {}
+            for slot in m._SLOTS:
+                val = getattr(m, slot)
+                if val is not None:
+                    if slot == "replacements":
+                        attrib[slot] = "#".join(val)
+                    else:
+                        attrib[slot] = str(val)
+            for k, v in m.__dict__.items():
+                if k not in m._SLOTS and not k.startswith("_"):
+                    attrib[k] = str(v)
+            ElementTree.SubElement(root, "error", attrib)
         return (b'<?xml version="1.0" encoding="UTF-8"?>\n' +
-                ElementTree.tostring(root) + b"\n")
+                ElementTree.tostring(root, encoding="utf-8") + b"\n")
 
     def _encode(self, text, srctext=None):
         params = {"language": self.language, "text": text.encode("utf-8")}
@@ -257,11 +325,11 @@ class LanguageTool:
         if self.motherTongue is not None:
             params["motherTongue"] = self.motherTongue
         if self.disabled:
-            params["disabled"] = ",".join(self.disabled)
+            params["disabledRules"] = ",".join(self.disabled)
         if self.enabled:
-            params["enabled"] = ",".join(self.enabled)
+            params["enabledRules"] = ",".join(self.enabled)
         if self.enabledOnly:
-            params["enabledOnly"] = "yes"
+            params["enabledOnly"] = "true"
         return urllib.parse.urlencode(params).encode()
 
     def correct(self, text: str, srctext=None) -> str:
@@ -285,11 +353,16 @@ class LanguageTool:
         """
         if not cls._server_is_alive():
             cls._start_server_on_free_port()
-        url = urllib.parse.urljoin(cls._url, "Languages")
+        url = urllib.parse.urljoin(cls._url, "v2/languages")
         languages = set()
-        for e in cls._get_root(url, num_tries=1):
-            languages.add(e.get("abbr"))
-            languages.add(e.get("abbrWithVariant"))
+        try:
+            with urllib.request.urlopen(url, None, cls._TIMEOUT) as f:
+                langs = json.loads(f.read().decode("utf-8"))
+        except (IOError, http.client.HTTPException, ValueError) as e:
+            raise Error("{}: {}".format(cls._url, e))
+        for e in langs:
+            languages.add(e.get("code"))
+            languages.add(e.get("longCode"))
         return languages
 
     @classmethod
@@ -300,20 +373,13 @@ class LanguageTool:
             cls._start_server_on_free_port()
         params = {"language": FAILSAFE_LANGUAGE, "text": ""}
         data = urllib.parse.urlencode(params).encode()
-        root = cls._get_root(cls._url, data, num_tries=1)
-        return root.attrib
-
-    @classmethod
-    def _get_root(cls, url, data=None, num_tries=2):
-        for n in range(num_tries):
-            try:
-                with urlopen(url, data, cls._TIMEOUT) as f:
-                    return ElementTree.parse(f).getroot()
-            except (IOError, http.client.HTTPException) as e:
-                if n + 1 < num_tries:
-                    cls._start_server()
-                else:
-                    raise Error("{}: {}".format(cls._url, e))
+        url = urllib.parse.urljoin(cls._url, "v2/check")
+        try:
+            with urllib.request.urlopen(url, data, cls._TIMEOUT) as f:
+                resp = json.loads(f.read().decode("utf-8"))
+        except (IOError, http.client.HTTPException, ValueError) as e:
+            raise Error("{}: {}".format(cls._url, e))
+        return resp.get("software", {})
 
     @classmethod
     def _start_server_on_free_port(cls):
@@ -374,19 +440,20 @@ class LanguageTool:
             # Couldn’t start the server, so maybe there is already one running.
             params = {"language": FAILSAFE_LANGUAGE, "text": ""}
             data = urllib.parse.urlencode(params).encode()
+            url = urllib.parse.urljoin(cls._url, "v2/check")
             try:
-                with urlopen(cls._url, data, cls._TIMEOUT) as f:
-                    tree = ElementTree.parse(f)
-            except (IOError, http.client.HTTPException) as e:
+                with urllib.request.urlopen(url, data, cls._TIMEOUT) as f:
+                    resp = json.loads(f.read().decode("utf-8"))
+            except (IOError, http.client.HTTPException, ValueError) as e:
                 if err:
                     raise err
                 raise ServerError("{}: {}".format(cls._url, e))
-            root = tree.getroot()
 
             # LanguageTool 1.9+
-            if root.get("software") != "LanguageTool":
+            software_name = resp.get("software", {}).get("name")
+            if software_name != "LanguageTool":
                 raise ServerError("unexpected software from {}: {!r}"
-                                  .format(cls._url, root.get("software")))
+                                  .format(cls._url, software_name))
 
     @classmethod
     def _server_is_alive(cls):
@@ -589,34 +656,3 @@ def terminate_server():
     """
     if LanguageTool._server_is_alive():
         LanguageTool._terminate_server()
-
-
-if USE_URLOPEN_RESOURCE_WARNING_FIX:
-    class ClosingHTTPResponse(http.client.HTTPResponse):
-        def __init__(self, sock, *args, **kwargs):
-            super().__init__(sock, *args, **kwargs)
-            self._socket_close = sock.close
-
-        def close(self):
-            super().close()
-            self._socket_close()
-
-    class ClosingHTTPConnection(http.client.HTTPConnection):
-        response_class = ClosingHTTPResponse
-
-    class ClosingHTTPHandler(urllib.request.HTTPHandler):
-        def http_open(self, req):
-            return self.do_open(ClosingHTTPConnection, req)
-
-    urlopen = urllib.request.build_opener(ClosingHTTPHandler).open
-
-else:
-    try:
-        urllib.response.addinfourl.__exit__
-    except AttributeError:
-        from contextlib import closing
-
-        def urlopen(*args, **kwargs):
-            return closing(urllib.request.urlopen(*args, **kwargs))
-    else:
-        urlopen = urllib.request.urlopen

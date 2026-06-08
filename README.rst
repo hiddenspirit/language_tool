@@ -44,31 +44,26 @@ Automatically apply suggestions to the text:
 Installation
 ------------
 
-To install the package for Python 3, use::
+To install the package, use::
 
-  $ ./setup.py install
+  $ pip install language_tool
 
-To install the package for Python 2, use::
+Or using uv::
 
-  $ python2 setup.py install
-
-On Windows, you may use one of the MSI binary packages provided on the
-`download page <https://bitbucket.org/spirit/language_tool/downloads>`_.
+  $ uv pip install language_tool
 
 
 Prerequisites
 -------------
 
-- `Python 3.2+ <http://www.python.org>`_ (or 2.7)
-- `LanguageTool <http://www.languagetool.org>`_
-- `lib3to2 <https://bitbucket.org/amentajo/lib3to2>`_
-  (if installing for Python 2)
+- `Python 3.8+ <https://www.python.org>`_
+- `LanguageTool <https://languagetool.org>`_
 
 
 The installation process should take care of downloading LanguageTool
 (it may take a few minutes).
 Otherwise, you can manually download `LanguageTool-stable.zip
-<http://www.languagetool.org/download/LanguageTool-stable.zip>`_
+<https://languagetool.org/download/LanguageTool-stable.zip>`_
 and unzip it into where the ``language_tool`` package resides.
 
-LanguageTool requires Java 6 or later.
+LanguageTool requires Java 8 or later.

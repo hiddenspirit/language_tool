@@ -12,44 +12,29 @@ from contextlib import closing
 from tempfile import TemporaryFile
 from zipfile import ZipFile
 
-try:
-    from urllib.request import urlopen
-    from urllib.parse import urljoin
-except ImportError:
-    from urllib import urlopen
-    from urlparse import urljoin
+from urllib.request import urlopen, Request
+from urllib.parse import urljoin
+from packaging.version import Version, InvalidVersion
 
-try:
-    from packaging.version import NormalizedVersion, suggest_normalized_version
-except ImportError:
+
+def parse_version(version):
+    """Parse a version string, returning None if it isn't PEP 440 compliant.
+    """
     try:
-        from distutils2.version import (
-            NormalizedVersion, suggest_normalized_version)
-    except ImportError:
-        from distutils.version import LooseVersion
-        NormalizedVersion = None
+        return Version(version)
+    except InvalidVersion:
+        return None
 
 
-BASE_URLS = ["http://www.languagetool.org/download/"]
+def urlopen_with_ua(url):
+    req = Request(
+        url,
+        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+    )
+    return urlopen(req)
+
+BASE_URLS = ["https://languagetool.org/download/"]
 PACKAGE_PATH = "language_tool"
-
-
-if NormalizedVersion:
-    class Version(NormalizedVersion):
-        def __init__(self, version):
-            self.unnormalized_version = version
-            NormalizedVersion.__init__(
-                self, suggest_normalized_version(version))
-
-        def __repr__(self):
-            return "{}({!r})".format(
-                self.__class__.__name__, self.unnormalized_version)
-
-        def __str__(self):
-            return self.unnormalized_version
-else:
-    class Version(LooseVersion):
-        pass
 
 
 def get_common_prefix(z):
@@ -76,7 +61,7 @@ def download_lt(update=False):
 
     for n, base_url in enumerate(BASE_URLS):
         try:
-            with closing(urlopen(base_url)) as u:
+            with closing(urlopen_with_ua(base_url)) as u:
                 while True:
                     data = u.read()
                     if not data:
@@ -89,17 +74,21 @@ def download_lt(update=False):
 
     href_format = r'<a href="(LanguageTool-(\d+.*?)\.{})">'
 
-    matches = [
-        (m.group(1), Version(m.group(2))) for m in
-        re.finditer(href_format.format("zip"), contents, re.I)
-    ]
+    def find_matches(ext):
+        result = []
+        for m in re.finditer(href_format.format(ext), contents, re.I):
+            version = parse_version(m.group(2))
+            if version is not None:
+                result.append((m.group(1), version))
+        return result
+
+    matches = find_matches("zip") or find_matches("oxt")
 
     if not matches:
-        matches = [
-            (m.group(1), Version(m.group(2))) for m in
-            re.finditer(href_format.format("oxt"), contents, re.I)
-        ]
+        raise RuntimeError(
+            "no LanguageTool download found at {!r}".format(base_url))
 
+    matches.sort(key=lambda item: item[1])
     filename, version = matches[-1]
     url = urljoin(base_url, filename)
     dirname = os.path.splitext(filename)[0]
@@ -110,14 +99,12 @@ def download_lt(update=False):
         return
 
     for old_path in old_path_list:
-        match = re.search("LanguageTool-(\d+.*?)$", old_path)
+        match = re.search(r"LanguageTool-(\d+.*?)$", old_path)
         if match:
-            current_version = Version(match.group(1))
-            try:
-                version_test = current_version > version
-            except TypeError:
+            current_version = parse_version(match.group(1))
+            if current_version is None:
                 continue
-            if version_test:
+            if current_version > version:
                 print(
                     "Local version: {!r}, Remote version: {!r}"
                     .format(str(current_version), str(version))
@@ -125,7 +112,7 @@ def download_lt(update=False):
                 return
 
     with closing(TemporaryFile()) as t:
-        with closing(urlopen(url)) as u:
+        with closing(urlopen_with_ua(url)) as u:
             content_len = int(u.headers["Content-Length"])
             sys.stdout.write(
                 "Downloading {!r} ({:.1f} MiB)...\n"
